@@ -107,13 +107,13 @@ export default function QuoteSubmit() {
 
       <button
         onClick={() => setOpen((o) => !o)}
-        className="group text-[10px] font-mono tracking-[0.2em] uppercase text-stone-600 hover:text-stone-800 transition-colors duration-300 select-none"
+        className="group text-[10px] font-mono tracking-[0.2em] uppercase select-none"
       >
         {open ? (
           <span className="text-stone-300">Close</span>
         ) : (
-          <span className="group-hover:tracking-[0.25em] transition-all duration-300">
-            Contribute
+          <span className="cue-highlight-alt group-hover:tracking-[0.25em] transition-all duration-300">
+            Contribute Wisdom
           </span>
         )}
       </button>

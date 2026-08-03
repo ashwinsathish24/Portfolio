@@ -7,9 +7,10 @@ import { useState, useEffect, useRef, MouseEvent, TouchEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getQuotes } from './data/quotes';
 import { ABOUT_LINES } from './data/about';
+import { MEMORY_CLUSTERS, MEMORY_LEAF_MAP, LEAF_TAG } from './data/memory';
 import QuoteSubmit from './components/QuoteSubmit';
 import { audio } from './utils/audio';
-import { Quote, ChimeRipple, FloatingQuoteInstance, AboutLineInstance } from './types';
+import { MemoryCluster, MemoryContent, Quote, ChimeRipple, FloatingQuoteInstance, AboutLineInstance } from './types';
 import { Volume2, VolumeX } from 'lucide-react';
 
 export default function App() {
@@ -76,6 +77,33 @@ export default function App() {
   const idleProgressRef = useRef(0);
   const peakIdleProgressRef = useRef(0);
   const triggerRefreshRef = useRef<() => void>(() => {});
+
+  // Memory constellation interaction state (Phase 3, silent space)
+  const [activeContent, setActiveContent] = useState<MemoryContent | null>(null);
+  const [activeContentTag, setActiveContentTag] = useState<string | null>(null);
+  const activeLeafRef = useRef<string | null>(null);
+  const activeLeafPosRef = useRef<{ x: number; y: number } | null>(null);
+  const contentFadeRef = useRef(0);
+  const contentExitingRef = useRef(false);
+  const hoveredClusterRef = useRef<string | null>(null);
+  const hoveredLeafRef = useRef<string | null>(null);
+  const nodeHoverRef = useRef(false);
+  const dwellStartRef = useRef(0);
+  const memoryNodesRef = useRef<{ id: string; kind: 'leaf' | 'group'; x: number; y: number; r: number }[]>([]);
+  const revealClusterRef = useRef<string | null>(null);
+  const revealGroupRef = useRef<string | null>(null);
+  const clusterRevealRef = useRef<Record<string, number>>({});
+  const groupRevealRef = useRef<Record<string, number>>({});
+  const prevActiveClusterRef = useRef<string | null>(null);
+  const prevActiveGroupRef = useRef<string | null>(null);
+  const lastMouseMoveRef = useRef(Date.now());
+
+  // Middle-mouse pan: drag repositions the memory constellation
+  const panRef = useRef({ x: 0, y: 0 });
+  const panTargetRef = useRef({ x: 0, y: 0 });
+  const panningRef = useRef(false);
+  const panStartMouseRef = useRef({ x: 0, y: 0 });
+  const panStartPanRef = useRef({ x: 0, y: 0 });
 
   // Sync state to ref for stale closure prevention in interval timers
   useEffect(() => {
@@ -252,6 +280,11 @@ export default function App() {
       // Interpolate spatial zoom Z position with a slower, more cozy cinematic drift
       scrollZRef.current += (targetScrollZRef.current - scrollZRef.current) * 0.05;
       const sz = scrollZRef.current;
+
+      // Ease the middle-mouse pan offset up front so the canvas constellation and
+      // the DOM center emitting dot read the exact same eased value every frame.
+      panRef.current.x += (panTargetRef.current.x - panRef.current.x) * 0.12;
+      panRef.current.y += (panTargetRef.current.y - panRef.current.y) * 0.12;
 
        // Update Memories Idle Progress in the silent space (sz >= 4100)
        const inSilentSpace = sz >= 4100;
@@ -515,10 +548,12 @@ export default function App() {
         }
 
         if (emittingDotRef.current) {
-          emittingDotRef.current.style.opacity = String(dotOpacity);
-          // Counteract the container scale so the central emitting dot stays exactly the same size on screen
+          emittingDotRef.current.style.opacity = String(dotOpacity * (1 - contentFadeRef.current));
+          // Counteract the container scale so the central emitting dot stays exactly the same size on screen.
+          // The pan translate is applied inside a container scaled by rhombusScale, so the offset must be
+          // divided by that scale to move the dot by the same on-screen pixels as the constellation.
           const dotScale = 1.0 / rhombusScale;
-          emittingDotRef.current.style.transform = `translate(-50%, -50%) scale(${dotScale})`;
+          emittingDotRef.current.style.transform = `translate(calc(-50% + ${panRef.current.x / rhombusScale}px), calc(-50% + ${panRef.current.y / rhombusScale}px)) scale(${dotScale})`;
         }
       }
 
@@ -764,19 +799,19 @@ export default function App() {
       }
 
       if (idleProgress > 0.01) {
-        const centerX = width / 2;
-        const centerY = height / 2;
+        const centerX = width / 2 + panRef.current.x;
+        const centerY = height / 2 + panRef.current.y;
 
         const t = Date.now() * 0.0006;
         const floatAmp = 8; // gentle float amplitude
 
-        const scaleFactor = Math.max(0.65, Math.min(1.1, Math.min(width, height) / 800));
-        const offsetA_X = -120 * scaleFactor;
-        const offsetA_Y = -120 * scaleFactor;
-        const offsetB_X = 140 * scaleFactor;
-        const offsetB_Y = -30 * scaleFactor;
-        const offsetC_X = -10 * scaleFactor;
-        const offsetC_Y = 135 * scaleFactor;
+        const scaleFactor = Math.max(0.85, Math.min(1.3, Math.min(width, height) / 680));
+        const offsetA_X = -150 * scaleFactor;
+        const offsetA_Y = -150 * scaleFactor;
+        const offsetB_X = 175 * scaleFactor;
+        const offsetB_Y = -40 * scaleFactor;
+        const offsetC_X = -15 * scaleFactor;
+        const offsetC_Y = 170 * scaleFactor;
 
         const nodeA = {
           id: 'interests',
@@ -819,7 +854,7 @@ export default function App() {
         const distC = Math.sqrt(Math.pow(mouse.x - nodeC.x, 2) + Math.pow(mouse.y - nodeC.y, 2));
         const minDist = Math.min(distA, distB, distC);
 
-        const maxDist = 320;
+        const maxDist = 360;
         const baseGlowA = Math.max(0, 1 - distA / maxDist);
         const baseGlowB = Math.max(0, 1 - distB / maxDist);
         const baseGlowC = Math.max(0, 1 - distC / maxDist);
@@ -845,8 +880,9 @@ export default function App() {
           goal: Math.max(0, Math.min(1, (peakIdle - 0.60) / 0.30)),
         };
 
-        // Shared global fade — same for ALL elements (controls fade-out consistently)
-        const globalFade = Math.max(0, Math.min(1, idleProgress / 0.50));
+        // Shared global fade — same for ALL elements (controls fade-out consistently).
+        // Multiplied by (1 - contentFade) so everything dissolves while a memory opens.
+        const globalFade = Math.max(0, Math.min(1, idleProgress / 0.50)) * (1 - contentFadeRef.current);
 
         // Node opacity = min(locked reveal, global fade)
         const nodeProgress = {
@@ -896,7 +932,7 @@ export default function App() {
           // Draw glowing halo around node
           if (factor > 0) {
             ctx.save();
-            const radius = 60 * factor;
+            const radius = 72 * factor;
             const radGrad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, radius);
             // Even dimmer glow for the nodes in dark bg, matching the user's request
             radGrad.addColorStop(0, `rgba(165, 180, 252, ${0.18 * factor * nodeOpacity})`);
@@ -929,7 +965,7 @@ export default function App() {
           // Draw main label (INTERESTS, KNOWLEDGE, GOAL)
           ctx.save();
           ctx.fillStyle = `rgba(250, 249, 245, ${0.75 * nodeOpacity})`;
-          ctx.font = '10px "Inter", sans-serif';
+          ctx.font = '12px "Inter", sans-serif';
           ctx.textAlign = 'center';
           ctx.textBaseline = 'middle';
           // Add spacing to characters for high-end cinematic tracking
@@ -942,15 +978,290 @@ export default function App() {
           if (detailOpacity > 0.01) {
             ctx.save();
             ctx.fillStyle = `rgba(250, 249, 245, ${0.5 * detailOpacity})`;
-            ctx.font = '9px "JetBrains Mono", monospace';
+            ctx.font = '11px "JetBrains Mono", monospace';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText(node.details, node.x, node.y + node.detailsYOffset);
             ctx.restore();
           }
         });
+
+        // --- 4. Interactive memory sub-tree reveal + dwell-to-content ---
+        const now = Date.now();
+
+        // Clear the memory if the user scrolls back out of the silent space
+        if (idleProgress < 0.05 && activeLeafRef.current) {
+          activeLeafRef.current = null;
+          activeLeafPosRef.current = null;
+          setActiveContent(null);
+          setActiveContentTag(null);
+          contentFadeRef.current = 0;
+          contentExitingRef.current = false;
+        }
+        if (idleProgress < 0.05 && revealClusterRef.current) {
+          revealClusterRef.current = null;
+          revealGroupRef.current = null;
+          prevActiveClusterRef.current = null;
+          prevActiveGroupRef.current = null;
+        }
+
+        // Content overlay state machine (always runs so it can fade out)
+        let cf = contentFadeRef.current;
+        if (activeLeafRef.current) {
+          if (contentExitingRef.current) {
+            cf = Math.max(0, cf - 0.012);
+            if (cf <= 0) {
+              activeLeafRef.current = null;
+              activeLeafPosRef.current = null;
+              setActiveContent(null);
+              setActiveContentTag(null);
+              contentExitingRef.current = false;
+              dwellStartRef.current = now;
+            }
+          } else {
+            cf = Math.min(1, cf + 0.03);
+          }
+        }
+        contentFadeRef.current = cf;
+        if (cf > 0) {
+          const contentEl = document.getElementById('memory-content-overlay');
+          if (contentEl) contentEl.style.opacity = String(cf);
+        }
+
+        const memFade = 1 - cf;
+        if (memFade > 0.01) {
+          memoryNodesRef.current = [];
+
+          // Splay helper: spread child index across a symmetric angular range
+          const childSplay = (index: number, count: number, spread: number) => {
+            if (count <= 1) return 0;
+            return -spread / 2 + (spread * index) / (count - 1);
+          };
+
+          const clusterMap = new Map<string, { node: (typeof nodes)[number]; cluster: MemoryCluster }>();
+          nodes.forEach((n) => {
+            const cluster = MEMORY_CLUSTERS.find((c) => c.id === n.id);
+            if (cluster) clusterMap.set(n.id, { node: n, cluster });
+          });
+
+          // Which main node the mouse is nearest to
+          let hoveredClusterId: string | null = null;
+          let hoveredClusterDist = Infinity;
+          nodes.forEach((n) => {
+            const d = Math.hypot(mouse.x - n.x, mouse.y - n.y);
+            if (d < 72 && d < hoveredClusterDist) {
+              hoveredClusterId = n.id;
+              hoveredClusterDist = d;
+            }
+          });
+          hoveredClusterRef.current = hoveredClusterId;
+          nodeHoverRef.current = hoveredClusterId !== null;
+
+          // Sticky sub-node reveal: hovering a main node keeps its sub-nodes visible
+          // while the cursor travels toward them. Collapses on click, or when the
+          // cursor drifts to the screen center or the very edge of the screen
+          // (checked after node hover detection, below).
+          if (hoveredClusterId) {
+            if (revealClusterRef.current !== hoveredClusterId) revealGroupRef.current = null;
+            revealClusterRef.current = hoveredClusterId;
+          }
+          // Per-cluster reveal progress: each cluster animates from 0 on its own
+          // with the same slow, self-drawing timing as the main nodes.
+          if (revealClusterRef.current && revealClusterRef.current !== prevActiveClusterRef.current) {
+            clusterRevealRef.current[revealClusterRef.current] = 0;
+          }
+          prevActiveClusterRef.current = revealClusterRef.current;
+          for (const c of MEMORY_CLUSTERS) {
+            const target = c.id === revealClusterRef.current ? 1 : 0;
+            const prev = clusterRevealRef.current[c.id] ?? 0;
+            clusterRevealRef.current[c.id] = prev + (target - prev) * (target > prev ? 0.03 : 0.06);
+          }
+
+          // Per-group leaf reveal progress: each group's leaves animate from 0 on its own
+          if (revealGroupRef.current && revealGroupRef.current !== prevActiveGroupRef.current) {
+            groupRevealRef.current[revealGroupRef.current] = 0;
+          }
+          prevActiveGroupRef.current = revealGroupRef.current;
+          for (const c of MEMORY_CLUSTERS) {
+            for (const child of c.children) {
+              if (child.kind !== 'group') continue;
+              const target = child.id === revealGroupRef.current ? 1 : 0;
+              const prev = groupRevealRef.current[child.id] ?? 0;
+              groupRevealRef.current[child.id] = prev + (target - prev) * (target > prev ? 0.03 : 0.06);
+            }
+          }
+
+          const activeClusterId = revealClusterRef.current;
+          if (activeClusterId && clusterMap.has(activeClusterId)) {
+            const { node: parentNode, cluster } = clusterMap.get(activeClusterId)!;
+            const baseAngle = Math.atan2(parentNode.y - centerY, parentNode.x - centerX);
+            const spread = Math.min(190, Math.max(85, cluster.children.length * 40));
+
+            cluster.children.forEach((child, i) => {
+              const ang = baseAngle + (childSplay(i, cluster.children.length, spread) * Math.PI) / 180;
+              const childX = parentNode.x + Math.cos(ang) * 158 * scaleFactor;
+              const childY = parentNode.y + Math.sin(ang) * 158 * scaleFactor;
+              const reveal = nodeProgress[cluster.id] * (clusterRevealRef.current[cluster.id] ?? 0);
+              if (reveal <= 0.01) return;
+
+              // Nodes reveal first, then their connecting line draws out to join them
+              const childLine = Math.max(0, (reveal - 0.55) / 0.45);
+
+              const childHover = Math.hypot(mouse.x - childX, mouse.y - childY);
+              const isHover = childHover < 26;
+              if (isHover) {
+                isHoveringRef.current = true;
+                nodeHoverRef.current = true;
+              }
+
+              // Parent-to-child constellation line (draws out after the node reveals)
+              if (childLine > 0.01) {
+                ctx.save();
+                ctx.strokeStyle = `rgba(250, 249, 245, ${0.10 * childLine})`;
+                ctx.lineWidth = 1;
+                ctx.setLineDash([3, 4]);
+                ctx.beginPath();
+                ctx.moveTo(parentNode.x, parentNode.y);
+                ctx.lineTo(parentNode.x + (childX - parentNode.x) * childLine, parentNode.y + (childY - parentNode.y) * childLine);
+                ctx.stroke();
+                ctx.restore();
+              }
+
+              // Child dot + ring (reveals first, then the line joins it)
+              ctx.save();
+              const childPulse = 1.0 + Math.sin(Date.now() * 0.003 + i) * 0.15;
+              ctx.fillStyle = `rgba(250, 249, 245, ${0.8 * reveal})`;
+              ctx.beginPath();
+              ctx.arc(childX, childY, 3.5 * childPulse, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.strokeStyle = `rgba(250, 249, 245, ${0.3 * reveal})`;
+              ctx.lineWidth = 1;
+              ctx.beginPath();
+              ctx.arc(childX, childY, 7 * childPulse, 0, Math.PI * 2);
+              ctx.stroke();
+              ctx.restore();
+
+              // Child label (fades in with the dot)
+              ctx.save();
+              ctx.fillStyle = `rgba(250, 249, 245, ${(isHover ? 0.9 : 0.6) * reveal})`;
+              ctx.font = '11px "JetBrains Mono", monospace';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(child.label.toUpperCase(), childX, childY + 20);
+              if (isHover && child.kind === 'group' && child.detail) {
+                ctx.fillStyle = `rgba(250, 249, 245, ${0.4 * reveal})`;
+                ctx.font = '10px "JetBrains Mono", monospace';
+                ctx.fillText(child.detail.toUpperCase(), childX, childY + 31);
+              }
+              ctx.restore();
+
+              if (child.kind === 'group') {
+                memoryNodesRef.current.push({ id: child.id, kind: 'group', x: childX, y: childY, r: 26 });
+
+                // Reveal the group's leaf headers when the group is hovered (sticky too)
+                if (isHover) revealGroupRef.current = child.id;
+                if (revealGroupRef.current === child.id) {
+                  const leafSpread = Math.min(230, Math.max(110, child.children.length * 38));
+                  const leafBase = Math.atan2(childY - centerY, childX - centerX);
+                  child.children.forEach((leaf, j) => {
+                    const lAng = leafBase + (childSplay(j, child.children.length, leafSpread) * Math.PI) / 180;
+                    // Alternate ring radii so dense groups read clearly
+                    const lRadius = (j % 2 === 0 ? 178 : 206) * scaleFactor;
+                    const lx = childX + Math.cos(lAng) * lRadius;
+                    const ly = childY + Math.sin(lAng) * lRadius;
+                    const lReveal = reveal * (groupRevealRef.current[child.id] ?? 0);
+                    if (lReveal <= 0.01) return;
+
+                    // Leaves reveal first, then their connecting line draws out to join them
+                    const lLineReveal = Math.max(0, (lReveal - 0.55) / 0.45);
+
+                    const lHover = Math.hypot(mouse.x - lx, mouse.y - ly);
+                    const lIsHover = lHover < 24;
+                    if (lIsHover) {
+                      isHoveringRef.current = true;
+                      nodeHoverRef.current = true;
+                    }
+
+                    // Group-to-leaf constellation line (draws out after the leaf reveals)
+                    ctx.save();
+                    ctx.strokeStyle = `rgba(250, 249, 245, ${0.08 * lLineReveal})`;
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([2, 4]);
+                    ctx.beginPath();
+                    ctx.moveTo(childX, childY);
+                    ctx.lineTo(childX + (lx - childX) * lLineReveal, childY + (ly - childY) * lLineReveal);
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Leaf dot (reveals first, then the line joins it)
+                    ctx.save();
+                    const lPulse = 1.0 + Math.sin(Date.now() * 0.003 + j * 1.7) * 0.15;
+                    ctx.fillStyle = `rgba(250, 249, 245, ${0.7 * lReveal})`;
+                    ctx.beginPath();
+                    ctx.arc(lx, ly, 2.5 * lPulse, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.strokeStyle = `rgba(250, 249, 245, ${0.26 * lReveal})`;
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.arc(lx, ly, 5.5 * lPulse, 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.restore();
+
+                    // Leaf label (fades in with the dot)
+                    ctx.save();
+                    ctx.fillStyle = `rgba(250, 249, 245, ${(lIsHover ? 0.9 : 0.55) * lReveal})`;
+                    ctx.font = '10px "JetBrains Mono", monospace';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(leaf.label.toUpperCase(), lx, ly + 16);
+                    ctx.restore();
+
+                    memoryNodesRef.current.push({ id: leaf.id, kind: 'leaf', x: lx, y: ly, r: 24 });
+
+                    // Hover only brightens the label — content opens on click
+                    if (lIsHover) {
+                      hoveredLeafRef.current = leaf.id;
+                    } else if (hoveredLeafRef.current === leaf.id) {
+                      hoveredLeafRef.current = null;
+                    }
+                  });
+                }
+              } else {
+                memoryNodesRef.current.push({ id: child.id, kind: 'leaf', x: childX, y: childY, r: 24 });
+                // Hover only brightens the label — content opens on click
+                if (isHover) {
+                  hoveredLeafRef.current = child.id;
+                } else if (hoveredLeafRef.current === child.id) {
+                  hoveredLeafRef.current = null;
+                }
+              }
+            });
+          } else {
+            hoveredLeafRef.current = null;
+          }
+
+          // Collapse expanded nodes when the cursor drifts to the constellation's own
+          // center or the top/left/right edges of the screen — but never while it is
+          // still over a node or an interactive element. The center follows the pan so
+          // repositioning the endless canvas never triggers a fade at the screen center,
+          // and the bottom edge is excluded entirely so bottom content never collapses it.
+          if (revealClusterRef.current && !nodeHoverRef.current && !isHoveringRef.current) {
+            const edgeMargin = 70;
+            const centerRadius = 140 * scaleFactor;
+            const atCenter = Math.hypot(mouse.x - centerX, mouse.y - centerY) < centerRadius;
+            const atEdge = mouse.x < edgeMargin || mouse.x > width - edgeMargin ||
+                           mouse.y < edgeMargin;
+            if (atCenter || atEdge) {
+              revealClusterRef.current = null;
+              revealGroupRef.current = null;
+            }
+          }
+        } else {
+          memoryNodesRef.current = [];
+        }
       }
 
+      // Custom cursor dot (always visible, even while memory content is showing)
       if (!hasStartedRef.current) {
         // --- START OVERLAY CURSOR ---
         if (isHoveringRef.current) {
@@ -1041,7 +1352,22 @@ export default function App() {
       } else {
         // --- INSIDE EXPERIENCE BEFORE RHOMBUS IS FILLED ---
         ctx.save();
-        if (isHoveringRef.current) {
+        if (panningRef.current) {
+          // Middle-mouse pan: show a grab-style double-ring cursor
+          const grabColor = isHoveringRef.current ? 'rgb(250, 249, 245)' : 'rgb(28, 25, 23)';
+          ctx.strokeStyle = grabColor;
+          ctx.fillStyle = grabColor;
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.arc(mouse.x, mouse.y, 2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.beginPath();
+          ctx.arc(mouse.x, mouse.y, 8, 0, Math.PI * 2);
+          ctx.stroke();
+          ctx.beginPath();
+          ctx.arc(mouse.x, mouse.y, 13, 0, Math.PI * 2);
+          ctx.stroke();
+        } else if (isHoveringRef.current) {
           ctx.fillStyle = 'rgb(250, 249, 245)';
           ctx.beginPath();
           ctx.arc(mouse.x, mouse.y, 3.5, 0, Math.PI * 2);
@@ -1079,10 +1405,17 @@ export default function App() {
     
     // Reset activity timers
     lastInteractionTimeRef.current = Date.now();
+    lastMouseMoveRef.current = Date.now();
     
     // Canvas spotlight target
     mouseRef.current.targetX = mx;
     mouseRef.current.targetY = my;
+
+    // Middle-mouse pan: drag repositions the memory constellation
+    if (panningRef.current) {
+      panTargetRef.current.x = panStartPanRef.current.x + (mx - panStartMouseRef.current.x);
+      panTargetRef.current.y = panStartPanRef.current.y + (my - panStartMouseRef.current.y);
+    }
 
     // Dynamically detect hover states on any interactive button/anchor under mouse cursor
     const target = e.target as HTMLElement;
@@ -1108,8 +1441,30 @@ export default function App() {
     parallaxRef.current.targetY = py * 18;
   };
 
+  // Middle-mouse press begins panning the memory constellation
+  const handleMouseDown = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.button === 1) {
+      e.preventDefault();
+      panningRef.current = true;
+      panStartMouseRef.current = { x: e.clientX, y: e.clientY };
+      panStartPanRef.current = { x: panRef.current.x, y: panRef.current.y };
+    }
+  };
+
+  // Middle-mouse release (and leave) ends panning
+  const handleMouseUp = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.button === 1) {
+      panningRef.current = false;
+    }
+  };
+
+  const handleMouseLeave = () => {
+    panningRef.current = false;
+  };
+
   // Screen click handler for synthesized windchimes
   const handleScreenClick = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     const cx = e.clientX;
     const cy = e.clientY;
     const xPercent = cx / window.innerWidth;
@@ -1120,6 +1475,35 @@ export default function App() {
 
     // Resume audio on any click (browsers require user gesture)
     audio.resume();
+
+    // Any click collapses the sticky sub-node reveal back to the main nodes
+    revealClusterRef.current = null;
+    revealGroupRef.current = null;
+    prevActiveClusterRef.current = null;
+    prevActiveGroupRef.current = null;
+
+    // Memory content: a click while content is open closes it; otherwise click a leaf to open
+    if (activeLeafRef.current !== null) {
+      contentExitingRef.current = true;
+    } else {
+      for (const hit of memoryNodesRef.current) {
+        if (hit.kind !== 'leaf') continue;
+        const d = Math.hypot(cx - hit.x, cy - hit.y);
+        if (d < hit.r) {
+          const leaf = MEMORY_LEAF_MAP[hit.id];
+          if (leaf) {
+            activeLeafRef.current = hit.id;
+            activeLeafPosRef.current = { x: hit.x, y: hit.y };
+            setActiveContent(leaf.content);
+            setActiveContentTag(LEAF_TAG[hit.id] ?? null);
+            contentFadeRef.current = 0;
+            contentExitingRef.current = false;
+            dwellStartRef.current = Date.now();
+          }
+          break;
+        }
+      }
+    }
 
     // Synthesize beautiful windchimes at mapped frequencies using Z-spatial depth!
     const zPercent = Math.max(0, Math.min(1, scrollZRef.current / 4200));
@@ -1407,6 +1791,9 @@ export default function App() {
         cursor: 'none'
       }}
       onMouseMove={handleMouseMove}
+      onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
+      onMouseLeave={handleMouseLeave}
       onClick={handleScreenClick}
     >
       {/* 1. Animated Film Grain with Mouse Clearing Spotlight */}
@@ -1680,12 +2067,39 @@ export default function App() {
       {(phase === 'about' || phase === 'alley') && (
         <motion.div
           initial={{ opacity: 0 }}
-          animate={{ opacity: 0.6 }}
+          animate={{ opacity: 1 }}
           transition={{ duration: 1, ease: 'easeOut' }}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-[9px] font-mono tracking-widest text-stone-400 uppercase select-none text-center"
+          className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-[9px] font-mono tracking-widest uppercase select-none text-center"
         >
-          Move mouse to drift thoughts • Scroll to zoom • Click to ring chimes
+          <span className="cue-highlight">Scroll Up/Down to explore • Click to ring chimes</span>
         </motion.div>
+      )}
+
+      {/* 7b. Memory content overlay (dwell or click a leaf header) */}
+      {activeContent && (
+        <div
+          id="memory-content-overlay"
+          className="absolute inset-0 z-30 flex items-center justify-center px-8 md:px-16 pointer-events-none select-none"
+          style={{ opacity: 0 }}
+        >
+          <div className="w-full max-w-2xl text-center">
+            {activeContentTag && (
+              <div className="text-[9px] font-mono tracking-[0.4em] uppercase text-[#FAF9F5]/40 mb-7">
+                {activeContentTag}
+              </div>
+            )}
+            <h2 className="text-2xl md:text-3xl font-extralight tracking-wide text-[#FAF9F5] mb-9 leading-snug">
+              {activeContent.title}
+            </h2>
+            <div className="flex flex-col gap-3">
+              {activeContent.lines.map((line, i) => (
+                <p key={i} className="text-sm md:text-[15px] font-light text-[#FAF9F5]/75 leading-relaxed text-center">
+                  {line}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Quote submission */}

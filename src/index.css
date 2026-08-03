@@ -8,3 +8,20 @@ html, body, #root {
   overflow: hidden;
   background-color: #FAF9F5;
 }
+
+/* Attention cue: cycles between highlighted and resting opacity.
+   Uses inherited currentColor so it adapts to light/dark themes. */
+@keyframes cue-highlight {
+  0%, 40% { opacity: 1; }
+  48%, 92% { opacity: 0.45; }
+  100% { opacity: 1; }
+}
+
+.cue-highlight {
+  animation: cue-highlight 9s ease-in-out infinite;
+}
+
+.cue-highlight-alt {
+  animation: cue-highlight 9s ease-in-out infinite;
+  animation-delay: -4.5s;
+}

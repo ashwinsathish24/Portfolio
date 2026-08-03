@@ -34,3 +34,32 @@ export interface ChimeRipple {
   color: string;
   maxRadius: number;
 }
+
+export interface MemoryContent {
+  title: string;
+  lines: string[];
+}
+
+export interface MemoryLeaf {
+  kind: 'leaf';
+  id: string;
+  label: string;
+  content: MemoryContent;
+}
+
+export interface MemoryGroup {
+  kind: 'group';
+  id: string;
+  label: string;
+  detail: string;
+  children: MemoryLeaf[];
+}
+
+export type MemoryChild = MemoryGroup | MemoryLeaf;
+
+export interface MemoryCluster {
+  id: string;
+  label: string;
+  detail: string;
+  children: MemoryChild[];
+}
