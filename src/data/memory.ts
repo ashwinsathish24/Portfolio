@@ -11,11 +11,10 @@ export const MEMORY_CLUSTERS: MemoryCluster[] = [
         id: 'int-cad',
         label: 'CAD & 3D',
         content: {
-          title: 'CAD & 3D Modelling',
+          title: 'CAD & 3D',
           lines: [
-            'AutoCAD automation for P&ID drafting — DRAW_LINE, INSERT_BLOCK, OFFSET, and full coordinate syntax',
-            'Parametric drawing generation driven by engineering field data',
-            'PyVista 3D viewport and Hono 3D hierarchical modelling for rapid budgetary proposals',
+            'Fascinated by parametric design and 3D form — turning data into clean geometry',
+            'Enjoy exploring CAD tooling, PyVista viewports, and modelling workflows in my free time',
           ],
         },
       },
@@ -53,6 +52,32 @@ export const MEMORY_CLUSTERS: MemoryCluster[] = [
           lines: [
             'This site — synthesized windchimes, ambient melodies, "Ashwin\'s Alley"',
             'Web Audio design for immersive, calm interfaces',
+            'Cozy, soft music is my favourite companion while building and thinking',
+          ],
+        },
+      },
+      {
+        kind: 'leaf',
+        id: 'int-pc',
+        label: 'PC Hardware',
+        content: {
+          title: 'PC Peripherals & Components',
+          lines: [
+            'Built a high-end RTX 5090 × Ryzen 9950X rig tuned for the best balance of performance and value',
+            'Runs Arch Linux as the daily driver — configured, optimized, and maintained by hand',
+            'A peripherals and components enthusiast, always chasing the next meaningful upgrade',
+          ],
+        },
+      },
+      {
+        kind: 'leaf',
+        id: 'int-vibe',
+        label: 'Vibe Coding',
+        content: {
+          title: 'Research-Driven Vibe Coding',
+          lines: [
+            'Love moving fast with vibe coding — research first, then ship quick automation solutions',
+            'Each build draws on real experience gained from past engineering workflows',
           ],
         },
       },
@@ -116,7 +141,7 @@ export const MEMORY_CLUSTERS: MemoryCluster[] = [
               title: 'Financial & Management Integration',
               lines: [
                 'Cost codes and scope-of-supply management to streamline project reporting',
-                'Paginated scope tables with discipline-level filtering',
+                'Paginated scope tables with granular filtering',
               ],
             },
           },

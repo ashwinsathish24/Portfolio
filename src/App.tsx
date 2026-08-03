@@ -1092,6 +1092,7 @@ export default function App() {
           }
 
           const activeClusterId = revealClusterRef.current;
+          let minMouseNodeDist = Infinity;
           if (activeClusterId && clusterMap.has(activeClusterId)) {
             const { node: parentNode, cluster } = clusterMap.get(activeClusterId)!;
             const baseAngle = Math.atan2(parentNode.y - centerY, parentNode.x - centerX);
@@ -1101,6 +1102,8 @@ export default function App() {
               const ang = baseAngle + (childSplay(i, cluster.children.length, spread) * Math.PI) / 180;
               const childX = parentNode.x + Math.cos(ang) * 158 * scaleFactor;
               const childY = parentNode.y + Math.sin(ang) * 158 * scaleFactor;
+              const childMouseDist = Math.hypot(mouse.x - childX, mouse.y - childY);
+              if (childMouseDist < minMouseNodeDist) minMouseNodeDist = childMouseDist;
               const reveal = nodeProgress[cluster.id] * (clusterRevealRef.current[cluster.id] ?? 0);
               if (reveal <= 0.01) return;
 
@@ -1169,6 +1172,8 @@ export default function App() {
                     const lRadius = (j % 2 === 0 ? 178 : 206) * scaleFactor;
                     const lx = childX + Math.cos(lAng) * lRadius;
                     const ly = childY + Math.sin(lAng) * lRadius;
+                    const leafMouseDist = Math.hypot(mouse.x - lx, mouse.y - ly);
+                    if (leafMouseDist < minMouseNodeDist) minMouseNodeDist = leafMouseDist;
                     const lReveal = reveal * (groupRevealRef.current[child.id] ?? 0);
                     if (lReveal <= 0.01) return;
 
@@ -1247,7 +1252,13 @@ export default function App() {
           // and the bottom edge is excluded entirely so bottom content never collapses it.
           if (revealClusterRef.current && !nodeHoverRef.current && !isHoveringRef.current) {
             const edgeMargin = 70;
-            const centerRadius = 140 * scaleFactor;
+            // The center dead-zone is context-aware: instead of a fixed radius, it only
+            // collapses while the cursor sits in genuinely empty space near the constellation
+            // center. The zone shrinks to just inside the cursor's own clearance from the
+            // active tree (hover reach + margin), so heading toward any node never trips a
+            // collapse before the node's own hover guard engages — regardless of tree depth.
+            const hoverReach = 30;
+            const centerRadius = Math.max(0, Math.min(140 * scaleFactor, minMouseNodeDist - hoverReach));
             const atCenter = Math.hypot(mouse.x - centerX, mouse.y - centerY) < centerRadius;
             const atEdge = mouse.x < edgeMargin || mouse.x > width - edgeMargin ||
                            mouse.y < edgeMargin;
