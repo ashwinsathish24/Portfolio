@@ -6,14 +6,26 @@
 import { useState, useEffect, useRef, MouseEvent, TouchEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { getQuotes } from './data/quotes';
-import { ABOUT_LINES } from './data/about';
-import { MEMORY_CLUSTERS, MEMORY_LEAF_MAP, LEAF_TAG } from './data/memory';
+import { useDynamicData } from './hooks/useDynamicData';
 import QuoteSubmit from './components/QuoteSubmit';
+import AboutPopup from './components/AboutPopup';
 import { audio } from './utils/audio';
 import { MemoryCluster, MemoryContent, Quote, ChimeRipple, FloatingQuoteInstance, AboutLineInstance } from './types';
 import { Volume2, VolumeX } from 'lucide-react';
 
 export default function App() {
+  const { loading: dataLoading, aboutLines: ABOUT_LINES, memoryClusters: MEMORY_CLUSTERS, memoryLeafMap: MEMORY_LEAF_MAP, leafTagMap: LEAF_TAG } = useDynamicData();
+
+  const memoryClustersRef = useRef(MEMORY_CLUSTERS);
+  const memoryLeafMapRef = useRef(MEMORY_LEAF_MAP);
+  const leafTagMapRef = useRef(LEAF_TAG);
+
+  useEffect(() => {
+    memoryClustersRef.current = MEMORY_CLUSTERS;
+    memoryLeafMapRef.current = MEMORY_LEAF_MAP;
+    leafTagMapRef.current = LEAF_TAG;
+  }, [MEMORY_CLUSTERS, MEMORY_LEAF_MAP, LEAF_TAG]);
+
   // Phase & intro states
   const [phase, setPhase] = useState<'loading' | 'about' | 'alley'>('loading');
   const [loadingProgress, setLoadingProgress] = useState(0);
@@ -52,6 +64,7 @@ export default function App() {
   const rhombusContainerRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLDivElement | null>(null);
   const emittingDotRef = useRef<HTMLDivElement | null>(null);
+  const scrollInstructionRef = useRef<HTMLDivElement | null>(null);
   
   // High-performance mouse positioning
   const mouseRef = useRef({ x: 0, y: 0, targetX: 0, targetY: 0 });
@@ -59,9 +72,9 @@ export default function App() {
   // Lagging parallax coordinate references
   const parallaxRef = useRef({ x: 0, y: 0, targetX: 0, targetY: 0 });
 
-  // 3D Spatial Scroll Zoom Tracking (about section occupies -2400 to 0, alley from 0+)
-  const scrollZRef = useRef(-2400);
-  const targetScrollZRef = useRef(-2400);
+  // 3D Spatial Scroll Zoom Tracking (about section occupies -2800 to 0, alley from 0+)
+  const scrollZRef = useRef(-2800);
+  const targetScrollZRef = useRef(-2800);
   const [isZooming, setIsZooming] = useState(false);
   const isZoomingRef = useRef(false);
   const zoomTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -155,8 +168,8 @@ export default function App() {
       // REVERSED scroll: scrolling down (deltaY > 0) pulls out, scrolling up (deltaY < 0) zooms deeper
       targetScrollZRef.current -= e.deltaY * 0.75;
       
-      // Clamp target zoom range: -2400 (about section start) to 4200 (end of spatial layout)
-      targetScrollZRef.current = Math.max(-2400, Math.min(4200, targetScrollZRef.current));
+      // Clamp target zoom range: -2800 (about section start) to 4200 (end of spatial layout)
+      targetScrollZRef.current = Math.max(-2800, Math.min(4200, targetScrollZRef.current));
     };
 
     const handleTouchStart = (e: TouchEvent) => {
@@ -183,7 +196,7 @@ export default function App() {
       }
 
       targetScrollZRef.current += deltaY * 0.75;
-      targetScrollZRef.current = Math.max(-2400, Math.min(4200, targetScrollZRef.current));
+      targetScrollZRef.current = Math.max(-2800, Math.min(4200, targetScrollZRef.current));
     };
 
     window.addEventListener('wheel', handleWheel, { passive: true });
@@ -206,6 +219,7 @@ export default function App() {
 
   // Initialize about lines with staggered z-offsets for spatial zoom reveal
   useEffect(() => {
+    if (ABOUT_LINES.length === 0) return;
     const lines: AboutLineInstance[] = ABOUT_LINES.map((text, idx) => ({
       id: `about-${idx}`,
       text,
@@ -214,24 +228,31 @@ export default function App() {
       zOffset: 800 - idx * 160,
     }));
     aboutLinesRef.current = lines;
-  }, []);
+  }, [ABOUT_LINES]);
 
   // Auto-transition: loading -> about only (about -> alley is scroll-based)
   useEffect(() => {
     if (phase === 'loading') {
       const progressInterval = setInterval(() => {
-        setLoadingProgress(p => Math.min(p + 4, 100));
+        setLoadingProgress(p => {
+          if (p >= 99 && dataLoading) return 99; // Hold at 99% if data is still loading
+          return Math.min(p + 4, 100);
+        });
       }, 100);
-      const aboutTimer = setTimeout(() => {
-        audio.init();
-        setPhase('about');
-      }, 2800);
+      
+      let aboutTimer: NodeJS.Timeout;
+      if (!dataLoading) {
+        aboutTimer = setTimeout(() => {
+          audio.init();
+          setPhase('about');
+        }, 2800);
+      }
       return () => {
         clearInterval(progressInterval);
-        clearTimeout(aboutTimer);
+        if (aboutTimer) clearTimeout(aboutTimer);
       };
     }
-  }, [phase]);
+  }, [phase, dataLoading]);
 
   // 1. Core Canvas Render Loop (Grain + High-Performance 3D Parallax Interpolation + Spot Clearance)
   useEffect(() => {
@@ -603,10 +624,19 @@ export default function App() {
 
       // About lines — pure sequential segments with quote-style spatial zoom
       if (phaseRef.current === 'about') {
-        const lineCount = ABOUT_LINES.length;
+        const lineCount = aboutLinesRef.current.length;
         const ABOUT_RANGE = 2400;
         const segSize = ABOUT_RANGE / lineCount;
         const aboutLineEls = document.querySelectorAll('.about-line');
+        const sz = scrollZRef.current;
+
+        if (scrollInstructionRef.current) {
+          // Fade out linearly between -2800 and -2500
+          let instOp = 1 - (sz - (-2800)) / 300;
+          scrollInstructionRef.current.style.opacity = Math.max(0, Math.min(1, instOp)).toString();
+          scrollInstructionRef.current.style.transform = `translate(-50%, -50%) translate3d(0, ${-(sz - -2800) * 0.15}px, 0)`;
+        }
+        
         aboutLineEls.forEach((el) => {
           const idx = parseInt(el.getAttribute('data-idx') || '0');
           const line = aboutLinesRef.current[idx];
@@ -1040,7 +1070,7 @@ export default function App() {
 
           const clusterMap = new Map<string, { node: (typeof nodes)[number]; cluster: MemoryCluster }>();
           nodes.forEach((n) => {
-            const cluster = MEMORY_CLUSTERS.find((c) => c.id === n.id);
+            const cluster = memoryClustersRef.current.find((c) => c.id === n.id);
             if (cluster) clusterMap.set(n.id, { node: n, cluster });
           });
 
@@ -1071,7 +1101,7 @@ export default function App() {
             clusterRevealRef.current[revealClusterRef.current] = 0;
           }
           prevActiveClusterRef.current = revealClusterRef.current;
-          for (const c of MEMORY_CLUSTERS) {
+          for (const c of memoryClustersRef.current) {
             const target = c.id === revealClusterRef.current ? 1 : 0;
             const prev = clusterRevealRef.current[c.id] ?? 0;
             clusterRevealRef.current[c.id] = prev + (target - prev) * (target > prev ? 0.03 : 0.06);
@@ -1082,7 +1112,7 @@ export default function App() {
             groupRevealRef.current[revealGroupRef.current] = 0;
           }
           prevActiveGroupRef.current = revealGroupRef.current;
-          for (const c of MEMORY_CLUSTERS) {
+          for (const c of memoryClustersRef.current) {
             for (const child of c.children) {
               if (child.kind !== 'group') continue;
               const target = child.id === revealGroupRef.current ? 1 : 0;
@@ -1501,12 +1531,12 @@ export default function App() {
         if (hit.kind !== 'leaf') continue;
         const d = Math.hypot(cx - hit.x, cy - hit.y);
         if (d < hit.r) {
-          const leaf = MEMORY_LEAF_MAP[hit.id];
+          const leaf = memoryLeafMapRef.current[hit.id];
           if (leaf) {
             activeLeafRef.current = hit.id;
             activeLeafPosRef.current = { x: hit.x, y: hit.y };
             setActiveContent(leaf.content);
-            setActiveContentTag(LEAF_TAG[hit.id] ?? null);
+            setActiveContentTag(leafTagMapRef.current[hit.id] ?? null);
             contentFadeRef.current = 0;
             contentExitingRef.current = false;
             dwellStartRef.current = Date.now();
@@ -1917,6 +1947,19 @@ export default function App() {
       {/* 5. Spatial Zoom Viewport (About Lines + Scattered Quotes) */}
       {(phase === 'about' || phase === 'alley') && (
         <div id="experience-viewport" className="absolute inset-0 w-full h-full pointer-events-none z-0" style={{ perspective: '1200px', transformStyle: 'preserve-3d' }}>
+          
+          {phase === 'about' && (
+            <div
+              ref={scrollInstructionRef}
+              className="absolute left-1/2 top-1/2 text-center pointer-events-none z-10"
+              style={{ transform: 'translate(-50%, -50%)', opacity: 1 }}
+            >
+              <p className="text-lg md:text-xl font-light text-stone-400 tracking-[0.2em] uppercase">
+                Scroll UP to explore
+              </p>
+            </div>
+          )}
+
           {phase === 'about' && aboutLinesRef.current.map((line) => (
             <div
               key={line.id}
@@ -2114,6 +2157,7 @@ export default function App() {
       )}
 
       {/* Quote submission */}
+      <AboutPopup />
       <QuoteSubmit />
     </div>
   );
