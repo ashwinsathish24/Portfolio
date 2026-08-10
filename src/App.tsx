@@ -843,10 +843,19 @@ export default function App() {
         const offsetC_X = -15 * scaleFactor;
         const offsetC_Y = 170 * scaleFactor;
 
+        const getClusterData = (id: string, defaultLabel: string, defaultDetails: string) => {
+          const cluster = memoryClustersRef.current.find(c => c.id === id);
+          return {
+            label: cluster?.label || defaultLabel,
+            details: cluster?.detail || defaultDetails
+          };
+        };
+
+        const interestsData = getClusterData('interests', 'INTERESTS', 'Creativity  •  Design  •  Music  •  Automation');
         const nodeA = {
           id: 'interests',
-          label: 'INTERESTS',
-          details: 'Creativity  •  Design  •  Music  •  Automation',
+          label: interestsData.label,
+          details: interestsData.details,
           x: centerX + offsetA_X + Math.sin(t + 1.0) * floatAmp,
           y: centerY + offsetA_Y + Math.cos(t + 1.5) * floatAmp,
           labelYOffset: -20,
@@ -854,10 +863,11 @@ export default function App() {
           align: 'center' as const
         };
 
+        const knowledgeData = getClusterData('knowledge', 'KNOWLEDGE', 'AutoCAD  •  Software Development  •  AI automation');
         const nodeB = {
           id: 'knowledge',
-          label: 'KNOWLEDGE',
-          details: 'AutoCAD  •  Software Development  •  AI automation',
+          label: knowledgeData.label,
+          details: knowledgeData.details,
           x: centerX + offsetB_X + Math.sin(t + 2.5) * floatAmp,
           y: centerY + offsetB_Y + Math.cos(t + 3.0) * floatAmp,
           labelYOffset: -20,
@@ -865,10 +875,11 @@ export default function App() {
           align: 'center' as const
         };
 
+        const goalData = getClusterData('goal', 'GOAL', 'Dohickey Engineer  •  Endless search of Opportunities');
         const nodeC = {
           id: 'goal',
-          label: 'GOAL',
-          details: 'Dohickey Engineer  •  Endless search of Opportunities',
+          label: goalData.label,
+          details: goalData.details,
           x: centerX + offsetC_X + Math.sin(t + 4.0) * floatAmp,
           y: centerY + offsetC_Y + Math.cos(t + 4.5) * floatAmp,
           labelYOffset: 24,
