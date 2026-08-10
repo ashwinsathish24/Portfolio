@@ -843,15 +843,15 @@ export default function App() {
         const offsetC_X = -15 * scaleFactor;
         const offsetC_Y = 170 * scaleFactor;
 
-        const getClusterData = (id: string, defaultLabel: string, defaultDetails: string) => {
+        const getClusterData = (id: string) => {
           const cluster = memoryClustersRef.current.find(c => c.id === id);
           return {
-            label: cluster?.label || defaultLabel,
-            details: cluster?.detail || defaultDetails
+            label: cluster?.label || '',
+            details: cluster?.detail || ''
           };
         };
 
-        const interestsData = getClusterData('interests', 'INTERESTS', 'Creativity  •  Design  •  Music  •  Automation');
+        const interestsData = getClusterData('interests');
         const nodeA = {
           id: 'interests',
           label: interestsData.label,
@@ -863,7 +863,7 @@ export default function App() {
           align: 'center' as const
         };
 
-        const knowledgeData = getClusterData('knowledge', 'KNOWLEDGE', 'AutoCAD  •  Software Development  •  AI automation');
+        const knowledgeData = getClusterData('knowledge');
         const nodeB = {
           id: 'knowledge',
           label: knowledgeData.label,
@@ -875,7 +875,7 @@ export default function App() {
           align: 'center' as const
         };
 
-        const goalData = getClusterData('goal', 'GOAL', 'Dohickey Engineer  •  Endless search of Opportunities');
+        const goalData = getClusterData('goal');
         const nodeC = {
           id: 'goal',
           label: goalData.label,
